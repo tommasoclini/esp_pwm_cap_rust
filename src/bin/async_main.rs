@@ -17,7 +17,7 @@ use log::info;
 
 extern crate alloc;
 
-#[handler]
+#[handler(priority = esp_hal::interrupt::Priority::max())]
 #[ram]
 fn my_handler() {
     let current_time = Instant::now();
