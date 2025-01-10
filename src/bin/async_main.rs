@@ -65,8 +65,8 @@ static CHANNELS: Mutex<[RefCell<(Option<Input>, TonReader)>; CH_COUNT]> = const 
     Mutex::new([const { RefCell::new((None, TonReader::new(Instant::from_ticks(0)))) }; CH_COUNT])
 };
 
-static SIGNALS: [signal::Signal<CriticalSectionRawMutex, Duration>; 2] =
-    [const { signal::Signal::new() }; 2];
+static SIGNALS: [signal::Signal<CriticalSectionRawMutex, Duration>; CH_COUNT] =
+    [const { signal::Signal::new() }; CH_COUNT];
 
 #[main]
 async fn main(spawner: Spawner) {
