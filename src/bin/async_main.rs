@@ -33,7 +33,9 @@ fn my_handler() {
                     } else {
                         sig.signal(ch_borrow_mut.1.falling(current_time));
                     }
-                }
+                }/* else {
+                    input_mut.listen(esp_hal::gpio::Event::AnyEdge);
+                }*/
             }
         }
     });
