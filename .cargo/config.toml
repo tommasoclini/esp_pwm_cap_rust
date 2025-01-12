@@ -1,8 +1,9 @@
 [target.xtensa-esp32s3-none-elf]
-runner = "espflash flash --monitor"
+runner = "probe-rs run --chip esp32s3"
 
 [env]
 ESP_LOG="INFO"
+DEFMT_LOG="info"
 
 [build]
 rustflags = [

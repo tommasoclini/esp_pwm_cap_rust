@@ -12,8 +12,12 @@ use esp_hal::{
     gpio::{Input, Io},
     prelude::*,
 };
-use esp_println::println;
+
 use log::info;
+
+use esp_println::println;
+
+use defmt_rtt as _;
 
 extern crate alloc;
 
@@ -22,20 +26,17 @@ extern crate alloc;
 fn my_handler() {
     let current_time = Instant::now();
     critical_section::with(|cs| {
-        let channels = CHANNELS.borrow(cs);
-        for (ch, sig) in channels.iter().zip(SIGNALS.iter()) {
-            let mut ch_borrow_mut = ch.borrow_mut();
-            if let Some(input_mut) = ch_borrow_mut.0.as_mut() {
+        let mut channels = CHANNELS.borrow(cs).borrow_mut();
+        for (ch, sig) in channels.iter_mut().zip(SIGNALS.iter()) {
+            if let Some(input_mut) = ch.0.as_mut() {
                 if input_mut.is_interrupt_set() {
                     input_mut.clear_interrupt();
                     if input_mut.is_high() {
-                        ch_borrow_mut.1.rising(current_time);
+                        ch.1.rising(current_time);
                     } else {
-                        sig.signal(ch_borrow_mut.1.falling(current_time));
+                        sig.signal(ch.1.falling(current_time));
                     }
-                }/* else {
-                    input_mut.listen(esp_hal::gpio::Event::AnyEdge);
-                }*/
+                }
             }
         }
     });
@@ -59,10 +60,12 @@ impl TonReader {
     }
 }
 
-const CH_COUNT: usize = 2;
+pub const CH_COUNT: usize = 2;
 
-static CHANNELS: Mutex<[RefCell<(Option<Input>, TonReader)>; CH_COUNT]> = const {
-    Mutex::new([const { RefCell::new((None, TonReader::new(Instant::from_ticks(0)))) }; CH_COUNT])
+static CHANNELS: Mutex<RefCell<[(Option<Input>, TonReader); CH_COUNT]>> = const {
+    Mutex::new(RefCell::new(
+        [const { (None, TonReader::new(Instant::from_ticks(0))) }; CH_COUNT],
+    ))
 };
 
 static SIGNALS: [signal::Signal<CriticalSectionRawMutex, Duration>; CH_COUNT] =
@@ -93,9 +96,9 @@ async fn main(spawner: Spawner) {
     throttle_ch.listen(esp_hal::gpio::Event::AnyEdge);
 
     critical_section::with(|cs| {
-        let channels_borrow = CHANNELS.borrow(cs);
-        channels_borrow[0].borrow_mut().0.replace(steering_ch);
-        channels_borrow[1].borrow_mut().0.replace(throttle_ch);
+        let mut channels_borrow = CHANNELS.borrow(cs).borrow_mut();
+        channels_borrow[0].0.replace(steering_ch);
+        channels_borrow[1].0.replace(throttle_ch);
     });
 
     let mut io = Io::new(peripherals.IO_MUX);
@@ -105,8 +108,19 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(run_receiver()).unwrap();
 
+    let mut button = Input::new(peripherals.GPIO0, esp_hal::gpio::Pull::Up);
+
     loop {
-        Timer::after(Duration::from_secs(1)).await;
+        _ = embedded_hal_async::digital::Wait::wait_for_falling_edge(&mut button).await;
+        critical_section::with(|cs| {
+            let mut channels = CHANNELS.borrow(cs).borrow_mut();
+
+            for ch in channels.iter_mut() {
+                if let Some(ch) = ch.0.as_mut() {
+                    ch.listen(esp_hal::gpio::Event::AnyEdge);
+                }
+            }
+        });
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/v0.22.0/examples/src/bin
@@ -116,7 +130,7 @@ async fn main(spawner: Spawner) {
 async fn run_receiver() {
     let my_futs = SIGNALS.iter().enumerate().map(|(n, sig)| async move {
         loop {
-            println!("t {n}: {}", sig.wait().await.as_micros())
+            println!("t {}: {}", n, sig.wait().await.as_micros())
         }
     });
 
